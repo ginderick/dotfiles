@@ -1,0 +1,106 @@
+#!/bin/bash
+set -euo pipefail
+
+# Re-run whenever .tmux.conf changes (so new tmux plugins get installed)
+# tmux.conf hash: {{ include "dot_tmux.conf" | sha256sum }}
+
+# Make sure tools in ~/.local/bin are found
+export PATH="$HOME/.local/bin:$PATH"
+
+{{ if eq .chezmoi.os "darwin" -}}
+brew install neovim ripgrep fd git tmux colima docker fnm
+brew install pyenv openssl readline sqlite3 xz zlib tcl-tk
+brew install --cask ghostty
+
+{{ else if eq .chezmoi.os "linux" -}}
+{{   $id := .chezmoi.osRelease.id -}}
+{{   $idLike := .chezmoi.osRelease.idLike | default "" -}}
+{{   if eq $id "ubuntu" "debian" -}}
+sudo apt update
+sudo apt install -y curl unzip neovim ripgrep fd-find git tmux
+# Python build dependencies for pyenv
+sudo apt install -y build-essential libssl-dev zlib1g-dev libbz2-dev \
+  libreadline-dev libsqlite3-dev libncurses-dev xz-utils tk-dev \
+  libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
+# Docker (native on Linux, no Colima needed)
+{{     if eq $id "ubuntu" -}}
+sudo apt install -y docker.io docker-compose-v2
+{{     else -}}
+sudo apt install -y docker.io docker-compose
+{{     end -}}
+
+# Debian/Ubuntu ship fd as "fdfind"; expose it as "fd"
+if command -v fdfind &>/dev/null && ! command -v fd &>/dev/null; then
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+fi
+
+{{     if eq $id "ubuntu" -}}
+if ! command -v ghostty &>/dev/null; then
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)"
+fi
+{{     end -}}
+
+{{   else if or (eq $id "arch" "cachyos") (contains "arch" $idLike) -}}
+# Arch and Arch-based distros (CachyOS, EndeavourOS, Manjaro, etc.)
+# -Syu avoids partial upgrades (the cause of the earlier zlib conflict).
+sudo pacman -Syu --needed --noconfirm \
+  curl unzip neovim ripgrep fd git tmux ghostty \
+  base-devel openssl xz tk \
+  fnm pyenv \
+  docker docker-compose docker-buildx
+
+{{   else if eq $id "fedora" -}}
+sudo dnf copr enable -y scottames/ghostty
+sudo dnf install -y curl unzip neovim ripgrep fd-find git tmux ghostty
+# Python build dependencies for pyenv
+sudo dnf install -y make gcc patch zlib-devel bzip2 bzip2-devel \
+  readline-devel sqlite sqlite-devel openssl-devel tk-devel \
+  libffi-devel xz-devel libuuid-devel gdbm-libs libnsl2
+# Docker
+sudo dnf install -y moby-engine docker-compose
+
+{{   else -}}
+echo "Unsupported Linux distro: {{ $id }} (idLike: {{ $idLike }}). Skipping system packages." >&2
+{{   end -}}
+
+# Docker service + group (Linux only)
+if command -v docker &>/dev/null; then
+  if command -v systemctl &>/dev/null; then
+    sudo systemctl enable --now docker.service
+  fi
+  if getent group docker &>/dev/null && ! id -nG "$USER" | grep -qw docker; then
+    sudo usermod -aG docker "$USER"
+    echo "Added $USER to the docker group; log out and back in for it to apply." >&2
+  fi
+fi
+
+# pyenv (skipped if a package manager already provided it)
+if ! command -v pyenv &>/dev/null && [ ! -d "$HOME/.pyenv" ]; then
+  curl -fsSL https://pyenv.run | bash
+fi
+
+# fnm (skipped if a package manager already provided it)
+if ! command -v fnm &>/dev/null && [ ! -x "$HOME/.local/share/fnm/fnm" ]; then
+  curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
+fi
+{{ end -}}
+
+# tmux plugin manager
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+  git clone --depth 1 https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
+fi
+# Install plugins listed in ~/.tmux.conf (already written, since this is an after_ script)
+if [ -f "$HOME/.tmux.conf" ]; then
+  "$HOME/.tmux/plugins/tpm/bin/install_plugins"
+fi
+
+# Claude Code
+if ! command -v claude &>/dev/null; then
+  curl -fsSL https://claude.ai/install.sh | bash
+fi
+
+# Cursor CLI
+if ! command -v cursor-agent &>/dev/null; then
+  curl https://cursor.com/install -fsS | bash
+fi
