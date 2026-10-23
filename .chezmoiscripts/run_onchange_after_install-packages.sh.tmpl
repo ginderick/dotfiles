@@ -7,11 +7,18 @@ set -euo pipefail
 # Make sure tools in ~/.local/bin are found
 export PATH="$HOME/.local/bin:$PATH"
 
+#############
+# MacOS
+#############
 {{ if eq .chezmoi.os "darwin" -}}
-brew install neovim ripgrep fd git tmux colima docker fnm
-brew install pyenv openssl readline sqlite3 xz zlib tcl-tk
+brew install neovim ripgrep fd git tmux colima fnm
+brew install pyenv openssl
 brew install --cask ghostty
 
+
+#############
+# Linux
+#############
 {{ else if eq .chezmoi.os "linux" -}}
 {{   $id := .chezmoi.osRelease.id -}}
 {{   $idLike := .chezmoi.osRelease.idLike | default "" -}}
@@ -49,16 +56,6 @@ sudo pacman -Syu --needed --noconfirm \
   base-devel openssl xz tk \
   fnm pyenv \
   docker docker-compose docker-buildx
-
-{{   else if eq $id "fedora" -}}
-sudo dnf copr enable -y scottames/ghostty
-sudo dnf install -y curl unzip neovim ripgrep fd-find git tmux ghostty
-# Python build dependencies for pyenv
-sudo dnf install -y make gcc patch zlib-devel bzip2 bzip2-devel \
-  readline-devel sqlite sqlite-devel openssl-devel tk-devel \
-  libffi-devel xz-devel libuuid-devel gdbm-libs libnsl2
-# Docker
-sudo dnf install -y moby-engine docker-compose
 
 {{   else -}}
 echo "Unsupported Linux distro: {{ $id }} (idLike: {{ $idLike }}). Skipping system packages." >&2
